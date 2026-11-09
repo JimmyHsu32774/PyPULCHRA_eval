@@ -1,0 +1,183 @@
+# J5 Implementation author: Tiffany, Human reviewer: PENDING.
+import numpy as np
+import math
+from numpy.typing import NDArray
+
+def retrieve_rotamers(residue_name: str, descriptor: list[int], library: dict, scope: str) -> list:
+    """
+    Assumed paramters: 
+        - residue_name = residue type (matches 1st index of rot_stat_idx -> error original rot_stat_idx uses ints)
+        - descriptor = RBINS (3 floats; from original: bin13_1, bin13_2, bin14; represents 3 C_ALPHA distances)
+        - library = {
+                rot_stat_idx = list of dict entries in form [residue_name: str, bin1: int, bin2: int, 
+                        bin3: int, n_configs: int, pos: int]
+                rot_stat_coords = list of list of 3 ints
+                heavy_atoms = list of entries in form {residue_name: [atoms]}
+                } (don't need to store original nheavy since heavy_atoms already contains info)
+        - scope = 'nearest_bin' or 'retrieved_bins"
+    Lines covered: 2408 - 2438 (from rebuild_sidechains())
+    TODO: 
+        - finish error checking (descriptor, library, assumed correct fetching)
+        - determine if / understand need to add ['CA'] to atom_names (after writing C5)
+        - understand how local_coords is calculated
+    """
+    VALID_RES_NAMES = ["ALA", "ARG", "ASN", "ASP", "CYS", "GLU", "GLN", "GLY", "HIS", "ILE", "LEU", 
+                       "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL"]
+    
+    # GLY skipped b/c has no side chain except H; Other residue_names are considered unsupported
+    #       rather than parameter errors
+    if residue_name == "GLY" or residue_name not in VALID_RES_NAMES:
+        return []
+
+    # check that descriptor is correct shape & only contains floats
+    if np.array(descriptor, dtype=float).shape != (3,):
+        raise ValueError('descriptor must have shape (3,)')
+
+    # check that library contains needed lists, further confirm that lists are in expected format
+    expected_keys = ["rot_stat_idx", "rot_stat_coords", "heavy_atoms"]
+    for key in expected_keys:
+        if key not in library:
+            raise ValueError(f"library paramter is missing expected key {key}")
+
+    # set number of rotomers to retrieve, raise error if scope isn't a valid string
+    if scope == "nearest_bin":
+        num_bins_kept = 1
+    elif scope == "retrieved_bins":
+        num_bins_kept = 10
+    else:
+        raise ValueError("scope parameter must be <nearest_bin|retrieved_bins>")
+
+    sorted_rotomers = []
+
+    # get bin ints from descriptor to match original c code
+    bin13_1 = descriptor[0]
+    bin13_2 = descriptor[1]
+    bin14 = descriptor[2]
+
+    # score every entry for residue type, only keep the first 1 or 10 depending on scope
+    for i in range(len(library.get("rot_stat_idx"))):
+        # from rot_stat_idx.h, rot_stat_idx[][6] = {residue_type -> residue_name, bin indicies [1 - 3], 
+        #       stored conformations in bin, where conformations start in rot_stat_coords}
+        # note: rot_stat_idx.h ends with entry where [][0] == -1, not needed since can determine end w/ len
+        if library.get("rot_stat_idx")[i][0] != residue_name:
+            continue
+
+        # calculate hit score (set weights of 1, 1, 0.2 from PULCHRA)
+        hit_score = abs(library.get("rot_stat_idx")[i][1] - bin13_1) + abs(library.get("rot_stat_idx")[i][2] - 
+                bin13_2) + 0.2 * abs(library.get("rot_stat_idx")[i][3] - bin14)
+        
+        # if < num_bins_kept rotomers evaled or hit is better than worst hit score rotomer, 
+        #       add rotomer to list in correct position
+        # ordering only keeps the first rotomer(s) looked at if there's a tie on the boundary of 
+        #       keeping a rotomer (in accordance with original code)
+        if len(sorted_rotomers) < num_bins_kept or hit_score < sorted_rotomers[-1][0]:
+            k = len(sorted_rotomers) - 1
+            while(k >= 0 and hit_score < sorted_rotomers[k][0]):
+                k -= 1
+            k += 1
+            sorted_rotomers.insert(k, [hit_score, i, library.get("rot_stat_idx")[i]])
+
+            # remove last rotamer if inserting into full list
+            if len(sorted_rotomers) > num_bins_kept:
+                del sorted_rotomers[-1]
+
+    candidates = []
+    # convert list of rotomers to candidates (id, bin_id, matching_score, atom_names, local_coords, library_order)
+    # hit_score, rot_stat_idx index, [residue_name, bin1, bin2, bin3, n_configs, pos]
+    for i, hit_score, rot_stat_lib_idx, rot_stat_idx in enumerate(sorted_rotomers):
+        n_configs, coords_start_idx = rot_stat_idx[4], rot_stat_idx[5]
+
+        for config_num in range(n_configs):
+            id = residue_name + ":" + rot_stat_lib_idx + ":" + config_num
+            bin_id = list(rot_stat_idx[1], rot_stat_idx[2], rot_stat_idx[3])
+            matching_score = hit_score
+
+            # added 'CA' to beginning by AI suggestion after analyzing original rot_stat_coords, 
+            #       to update after writing C5
+            atom_names = ['CA'] + library.get("heavy_atoms").get(residue_name)
+
+            # AI used to figure out how to calculate local_coords
+            #   local_coords = len(atom_names) x 3 matrix
+            start = int(coords_start_idx) + len(atom_names) * config_num
+            local_coords = library.get("rot_stat_coords")[start:start + len(atom_names)].copy()
+
+            library_order = i
+
+            candidates.append([id, bin_id, matching_score, atom_names, local_coords, library_order])
+
+    return candidates
+
+# J6 Implementation author: Tiffany. Human reviewer: PENDING.
+def place_candidate(local_coords: list[list[int]], origin: list[int], axes: NDArray[np.float64]) -> NDArray[np.float64]:
+    """
+    Assumed paramters: 
+        - local_coords = list of side chain atom coords for a single candidate from J5
+        - origin = C_ALPHA 3D position (list length 3)
+        - axes = frame vectors (3x3 matrix, created from lines 2370 - 2404)
+    Lines covered (guessed): 2501 - 2525 (from rebuild_sidechains())
+    TODO: 
+        - type error checking (checking that elements of lists are floats)
+        - consider parallelizing shifting coords (unsure since max atoms placed = 10)
+    """
+    ACCEPTED_FLOATING_ERROR = 1e-8
+    # type error checking
+
+    # paramter shape error checking using np.array (written using AI)
+    if np.array(local_coords, dtype=float).ndim != 2 or np.array(local_coords, dtype=float).shape[1] != 3:
+        raise ValueError('local_coords must have shape (M, 3)')
+    if np.array(origin, dtype=float).shape != (3,):
+        raise ValueError('origin must have shape (3,)')
+    if np.array(axes, dtype=float).shape != (3, 3):
+        raise ValueError('axes must have shape (3, 3)')
+
+    # return early if local_coords is empty assume side-chain has no atoms -> return array sized (0, 3)
+    if np.array(local_coords, dtype=float).shape[0] == 0:
+        return np.array([]).reshape(0, 3)
+
+    # check that axes are orthonormal (suggested by AI, but implemented without help)
+    # check that each axes is unit length (magnitude = 1)
+    for i in range(3):
+        magnitude = math.sqrt(axes[i][0]**2 + axes[i][1]**2 + axes[i][2]**2)
+        # suggested by AI to check using this method to avoid floating point arithmetic errors
+        if abs(magnitude - 1.0) > ACCEPTED_FLOATING_ERROR:
+            raise ValueError(f"axes[{i}] does not have a magnitude of 1")
+
+    # check that each axes is orthogonal to all other axes (dot product = 0)
+    dot0_1 = axes[0][0] * axes[1][0] + axes[0][1] * axes[1][1] + axes[0][2] * axes[1][1]
+    dot1_2 = axes[1][0] * axes[2][0] + axes[1][1] * axes[2][1] + axes[1][2] * axes[2][1]
+    dot0_2 = axes[0][0] * axes[2][0] + axes[0][1] * axes[2][1] + axes[0][2] * axes[2][1]
+    if abs(dot0_1 - 0.0) > ACCEPTED_FLOATING_ERROR or abs(dot1_2 - 0.0) > ACCEPTED_FLOATING_ERROR or (
+            abs(dot0_2 - 0.0) > ACCEPTED_FLOATING_ERROR):
+        raise ValueError("axes are not orthogonal")
+
+    # check that axes only rotate -> check that each det(axes) = 1 using cofactor expansion
+    # (suggested by AI, but implemented without help)
+    det = (
+        axes[0][0] * (axes[1][1] * axes[2][2] - axes[1][2] * axes[2][1]) - 
+        axes[0][1] * (axes[1][0] * axes[2][2] - axes[1][2] * axes[2][0]) +
+        axes[0][2] * (axes[1][0] * axes[2][1] - axes[1][1] * axes[2][0])
+           )
+    if abs(det - 1.0) > ACCEPTED_FLOATING_ERROR:
+        raise ValueError('Given axes do not conserve magnitude of multiplied vectors (determinant != 1)')
+
+    # need to reimplement since "local_coords @ axes.T + origin" relies on underlying C code to optimize
+    # return local_coords @ axes.T + origin
+    placed_coords = []
+    # for each atom in the side-chain: rotate relative coords from local_coords using axes and 
+    #   shift to C_ALPHA location using origin
+    for x, y, z in local_coords:
+        new_x = x * axes[0][0] + y * axes[0][1] + z * axes[0][2] + origin[0]
+        new_y = x * axes[1][0] + y * axes[1][1] + z * axes[1][2] + origin[1]
+        new_z = x * axes[2][0] + y * axes[2][1] + z * axes[2][2] + origin[2]
+        placed_coords.append([new_x, new_y, new_z])
+
+    # convert to array according to expected output
+    return np.array(placed_coords)
+
+# Implementation author: PENDING. Human reviewer: PENDING.
+def select_original_candidate(candidates, context, options):
+    """C5: Implement the contract above; no reference solution is supplied."""
+    raise NotImplementedError('Complete and review this task before integration')
+    """
+    lines 2445 - 2499 (PDB_SG option) for order swapping
+    """

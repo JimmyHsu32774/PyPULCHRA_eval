@@ -1,10 +1,17 @@
+<<<<<<< HEAD
 import copy
 from itertools import combinations
+=======
+>>>>>>> 108116a5ac53390783f474a3239fb0d1251b97de
 import math
 import numpy as np
 from scipy.spatial import KDTree
 
+<<<<<<< HEAD
 # Author: Caroline Rhoads (C1)
+=======
+#Author: Caroline Rhoads (C1)
+>>>>>>> 108116a5ac53390783f474a3239fb0d1251b97de
 def find_close_pairs(coords: list[list[float]], cutoff: float, excluded_pairs: set[tuple[int, int]]) -> np.ndarray:
     """C1: Implement the contract above; document your reasoning.
     Implemented by: Caroline Rhoads
@@ -57,6 +64,7 @@ def find_close_pairs(coords: list[list[float]], cutoff: float, excluded_pairs: s
         and (pair[1], pair[0]) not in excluded_pairs
     ]).reshape(-1, 2)
 
+<<<<<<< HEAD
     return clash_arr
 
 
@@ -167,3 +175,6 @@ def correct_structure_stage(structure: dict, candidates: list, options: dict[str
         return return_structure
 
     raise NotImplementedError("enabled branch is BLOCKED: needs candidate format, library data, C reference trace")
+=======
+    return clash_arr
+>>>>>>> 108116a5ac53390783f474a3239fb0d1251b97de
