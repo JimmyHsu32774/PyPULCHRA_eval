@@ -1,13 +1,21 @@
-"""Y7 original backbone-table reader; see docs/PROVENANCE.md."""
-import os
+"""Read the PULCHRA backbone fragment tables."""
 import re
+from pathlib import Path
+from zipfile import ZipFile
+
 import numpy as np
 
+REFERENCE_ARCHIVE = Path(__file__).resolve().parents[1] / 'reference' / 'c-headers.zip'
+
 # Author: Yitian
-def parse_backbone_library(path):
-    """Parse nco_data.h into two fragment tables (standard and proline)."""
-    with open(path, 'r', encoding='utf-8', errors='replace') as handle:
-        text = handle.read()
+def parse_backbone_library(path=REFERENCE_ARCHIVE):
+    """Read standard and proline fragments from the reference ZIP or a loose header."""
+    path = Path(path)
+    if path.suffix.lower() == '.zip':
+        with ZipFile(path) as archive:
+            text = archive.read('reference/nco_data.h').decode('utf-8', errors='replace')
+    else:
+        text = path.read_text(encoding='utf-8', errors='replace')
 
     # Author: Yitian
     def parse_table(name):
@@ -28,7 +36,7 @@ def parse_backbone_library(path):
 
     return {
         'version': 'PULCHRA 3.07 nco_data.h',
-        'source_path': os.path.abspath(path),
+        'source_path': str(path.absolute()),
         'standard': parse_table('nco_stat'),
         'proline': parse_table('nco_stat_pro'),
     }

@@ -32,10 +32,8 @@ def test_y7_notebook_cases_and_c_reference():
                                 rise * np.arange(n)))
     
     
-    library_path = str(ROOT / 'reference/nco_data.h')
-    assert library_path is not None, 'put the pinned PULCHRA source in projects/PULCHRA/src'
-    library = parse_backbone_library(library_path)
-    print('library:', library_path)
+    library = parse_backbone_library()
+    print('library:', library['source_path'])
     print('fragments:', len(library['standard']), 'standard,', len(library['proline']), 'proline')
     
     # one short chain: N/CA/C/O for every residue plus a C-terminal OXT

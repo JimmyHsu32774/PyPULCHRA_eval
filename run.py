@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent
 # Written by Codex.
 def run_backbone(input_path, output_path, optimize_ca=False):
     ca = read_ca_record(input_path)
-    library = parse_backbone_library(ROOT / 'reference/nco_data.h')
+    library = parse_backbone_library()
     stages = make_stages(library, skip_candidates, keep_backbone, skip_correction)
     options = {'optimize_ca': optimize_ca, 'correct_sidechains': False}
     result = run_reconstruction(ca, options, stages)
