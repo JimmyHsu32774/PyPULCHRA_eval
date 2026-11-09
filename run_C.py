@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 ROOT = Path(__file__).resolve().parent
 
 
-# Author: Jimmy
+# Written by Codex.
 def rebuild_pdbs(input_dir=ROOT / "data/Input", results_dir=None, optimize_ca=False, pulchra="pulchra"):
     if results_dir is None:
         results_dir = ROOT / "results" / ("C_optimized" if optimize_ca else "C")
