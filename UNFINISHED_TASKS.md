@@ -56,7 +56,7 @@ The [Python run](data/demo/output/1ubq_backbone.pdb) with default settings and t
 
 The six single-chain inputs were 1UBQ, 108L_A, 109L_A, 10CW_A, 6FSX_B and 2EAB_A. With optimization enabled, both implementations used the same number of iterations on each input (5 to 9). All 1,763 CA coordinates matched at the output PDB precision of 0.001 Å. With optimization disabled, both preserved the input CA coordinates.
 
-The bundled `run_C.py` always passes `-c`. To test optimization, the comparison used the original project's `reference/pulchra_trace` with `PULCHRA_ENABLE_CA=1` and `-sv`. This uses the original C optimizer, rebuilds only the backbone and prints the iteration log.
+The six-protein benchmark used an instrumented C build with coordinate preservation disabled and the `-sv` flags for backbone-only output and an iteration log. To run the optimizer with your own `pulchra` executable, follow the [C build instructions](README.md#build-pulchra-for-the-c-runner). The runner passes `-c` by default and omits it for `--optimize-ca`.
 
 | 1UBQ measure | C6 off | C6 on |
 |---|---:|---:|
