@@ -284,26 +284,26 @@ def retrieve_rotamers(residue_name: str, descriptor: list[int], library: dict, s
     candidates = []
     # convert list of rotomers to candidates (id, bin_id, matching_score, atom_names, local_coords, library_order)
     # hit_score, rot_stat_idx index, [residue_name, bin1, bin2, bin3, n_configs, pos]
-    for i, (hit_score, rot_stat_lib_idx, rot_stat_idx) in enumerate(sorted_rotomers):
+    for i, hit_score, rot_stat_lib_idx, rot_stat_idx in enumerate(sorted_rotomers):
         n_configs, coords_start_idx = rot_stat_idx[4], rot_stat_idx[5]
 
         for config_num in range(n_configs):
-            id = f"{residue_name}:{rot_stat_lib_idx}:{config_num}"
-            bin_id = list(rot_stat_idx[1:4])
-            matching_score = hit_score
-
-            # added 'CA' to beginning by AI suggestion after analyzing original rot_stat_coords, 
-            #       to update after writing C5
+            # added 'CA' to beginning of atom_names by AI suggestion after analyzing original 
+            #       rot_stat_coords, to update after writing C5
             atom_names = ['CA'] + library.get("heavy_atoms").get(residue_name)
 
             # AI used to figure out how to calculate local_coords
             #   local_coords = len(atom_names) x 3 matrix
             start = int(coords_start_idx) + len(atom_names) * config_num
-            local_coords = library.get("rot_stat_coords")[start:start + len(atom_names)].copy()
-
-            library_order = i
-
-            candidates.append([id, bin_id, matching_score, atom_names, local_coords, library_order])
+            
+            candidates.append({
+                'id': residue_name + ":" + rot_stat_lib_idx + ":" + config_num, 
+                'bin_id': list(rot_stat_idx[1], rot_stat_idx[2], rot_stat_idx[3]), 
+                'matching_score': hit_score, 
+                'atom_names': atom_names, 
+                'local_coords': library.get("rot_stat_coords")[start:start + len(atom_names)].copy(), 
+                'library_order': i
+            })
 
     return candidates
 
