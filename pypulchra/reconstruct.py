@@ -290,7 +290,7 @@ def retrieve_rotamers(residue_name: str, descriptor: list[int], library: dict, s
         for config_num in range(n_configs):
             # added 'CA' to beginning of atom_names by AI suggestion after analyzing original 
             #       rot_stat_coords, to update after writing C5
-            atom_names = ['CA'] + library.get("heavy_atoms").get(residue_name)
+            atom_names = library.get("heavy_atoms").get(residue_name)
 
             # AI used to figure out how to calculate local_coords
             #   local_coords = len(atom_names) x 3 matrix
