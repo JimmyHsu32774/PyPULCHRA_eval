@@ -380,10 +380,98 @@ def place_candidate(local_coords: list[list[int]], origin: list[int], axes: NDAr
 def capture_candidate_trace(engine, ca_record, options, scope):
     pass
 
-
 # Task: C5
+# Author: Tiffany
 def select_original_candidate(candidates, context, options):
-    pass
+    """
+    Assumed paramters: 
+        - candidates = {
+                id = residue_name + ":" + rot_stat_lib_idx + ":" + config_num
+                bin_id = list(rot_stat_idx[1], rot_stat_idx[2], rot_stat_idx[3])
+                matching_score = hit_score
+                atom_names = ['CA'] + library.get("heavy_atoms").get(residue_name)
+                local_coords = start = the local coords of heavy atoms relative to the origin
+                library_order = rotomer # from sorted rotomer list
+                global_coords = the global x, y, z coords of heavy atoms from local_coords (from J6)
+            }
+        - context = {
+                origin = global x, y, z coords of C-alpha backbone position
+            }
+        - options = {
+                pdb_sg = look at every member of the 2 best-ranked bins (l < 2); for each, take the
+                    centroid of the CA anchor point plus its side-chain atoms (nsc points) and its
+                    SQUARED distance to the residue's reference centroid; keeps candidate w/
+                    smallest dist. In case of ties, keeps earlier candidate. Has a starting
+                    starting best dist of 100.0, but if nothing has dist < 100.0, keeps "library 
+                    position 0"
+            }
+    TODO: 
+        - error checking
+    """
+    if candidates is None or len(candidates) == 0:
+        return {'selected_id': None, 'decision_trace': {'status': 'no_candidates'}}
+
+    # error check for duplicates
+
+    if not options['pdb_sg']:
+        first_candidate = candidates[0]
+        return {
+            'selected_id': first_candidate['id'],
+            'decision_trace': {
+                'status': 'selected',
+                'rule': 'first_member_of_best_ranked_bin',
+                'pdb_sg': False,
+                'bin_id': first_candidate['bin_id'],
+                'matching_score': first_candidate['matching_score'],
+                'n_candidates_in_pool': len(candidates)
+            }
+        }
+
+    # convert to array to make later computations easier
+    ca_position = np.asarray(context['origin'], dtype=float)
+ 
+    best_candidate = None
+    INITIAL_BEST_SQ_DIST = 100.0
+    best_sq_dist = INITIAL_BEST_SQ_DIST
+    tied_candidate_ids = []
+    scanned_candidates = []
+
+    # only compare first 2 candidates in accordance w/ original code, may modify later using options
+    for candidate in candidates[:2]: 
+        side_chain_coords = np.asarray(candidate['global_coords'], dtype=float)
+        points_in_centroid = len(side_chain_coords) + 1   # side-chain atoms + CA anchor point
+        # find center by avg coords by num of side chain atoms
+        candidate_centroid = (ca_position + side_chain_coords.sum(axis=0)) / points_in_centroid
+        squared_distance = float(np.sum((ca_position - candidate_centroid) ** 2))
+        scanned_candidates.append({'id': candidate['id'], 'bin_id': candidate['bin_id'],
+                                   'squared_distance': squared_distance})
+ 
+        if squared_distance < best_sq_dist:
+            best_sq_dist = squared_distance
+            best_candidate = candidate
+            tied_candidate_ids = [candidate['id']]
+        elif squared_distance == best_sq_dist and best_candidate is not None:
+            tied_candidate_ids.append(candidate['id'])
+ 
+    decision_trace = {
+        'rule': 'closest_centroid_in_two_best_ranked_bins',
+        'pdb_sg': True,
+        'scanned_candidates': scanned_candidates,
+        'initial_best_squared_distance': INITIAL_BEST_SQ_DIST,
+        'n_candidates_in_pool': len(candidates),
+    }
+
+    # highly unlikely to happen, but include if it does happen
+    if best_candidate is None:
+        decision_trace['status'] = 'fallback_no_candidate_below_initial_distance'
+        decision_trace['note'] = 'C keeps library position 0 here; it may not be in this pool'
+        return {'selected_id': None, 'decision_trace': decision_trace}
+ 
+    decision_trace['status'] = 'selected'
+    decision_trace['best_squared_distance'] = best_sq_dist
+    decision_trace['tied_candidate_ids'] = tied_candidate_ids   # first one wins (strict '<')
+    return {'selected_id': best_candidate['id'], 'decision_trace': decision_trace}
+
 
 
 # Task: C7
