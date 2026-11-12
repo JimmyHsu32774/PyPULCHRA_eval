@@ -427,6 +427,7 @@ def select_original_candidate(candidates, context, options):
             }
         }
 
+    # following code is AI-assisted
     # convert to array to make later computations easier
     ca_position = np.asarray(context['origin'], dtype=float)
  
