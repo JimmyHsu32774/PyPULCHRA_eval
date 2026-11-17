@@ -10,12 +10,10 @@ The Python command rebuilds the backbone. The 76 residues in the 1UBQ demo yield
 | J1 | `angular_error_deg(a, b, period=360.0)` | [function.py](pypulchra/function.py) |
 | J2 | `choose_oracle(candidate_ids, errors)` | [evaluate.py](pypulchra/evaluate.py) |
 | J3 | `classify_selection(selected_error, candidate_errors, threshold)` | [evaluate.py](pypulchra/evaluate.py) |
-| J4 | `assemble_candidate_record(residue_key, candidates, selected_id, scope)` | [reconstruct.py](pypulchra/reconstruct.py) |
 | J7 | `capture_candidate_trace(engine, ca_record, options, scope)` | [reconstruct.py](pypulchra/reconstruct.py) |
 | C2 | `pair_overlap_energy(coords_a, coords_b, cutoff)` | [clashes.py](pypulchra/clashes.py) |
 | C3 | `icm_sweep(states, unary_costs, pairwise_costs)` | [clashes.py](pypulchra/clashes.py) |
 | C4 | `compare_stage_metrics(before, after, atol=1e-10)` | [evaluate.py](pypulchra/evaluate.py) |
-| C5 | `select_original_candidate(candidates, context, options)` | [reconstruct.py](pypulchra/reconstruct.py) |
 | C7 | `correct_structure_stage(structure, candidates, options)` | [reconstruct.py](pypulchra/reconstruct.py) |
 | T2 | `summarize_recovery(labels)` | [evaluate.py](pypulchra/evaluate.py) |
 | T3 | `paired_metric_summary(before, after, atol=1e-10)` | [evaluate.py](pypulchra/evaluate.py) |
