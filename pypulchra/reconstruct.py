@@ -197,14 +197,74 @@ def rebuild_backbone(ca_record, backbone_library, options):
 
 
 # Task: J4
+# Author: Tiffany
 def assemble_candidate_record(residue_key, candidates, selected_id, scope):
-    pass
+    """
+    Assemble one JSON ready candidate record containing residue key, scope, list of all ids, coords,
+    and selected ID if applicable. 
+    """
+    # check invalid scope
+    if scope != "nearest_bin" and scope != "retrieved_bins":
+        raise ValueError("scope parameter must be <nearest_bin|retrieved_bins>")
+
+    candidate_record = {
+        "residue_key": list(residue_key),
+        "scope": scope
+    }
+
+    # check that selected_id isn't None, still valid since GLY and unsupported residues don't have candidates
+    if selected_id == None:
+        candidate_record["selected_index"] = None   
+
+    # get list of ids and coords, check for NaN or inconsistant atom count, check for duplicate ids
+    ids = []
+    all_coords = []
+    for candidate in candidates:
+        # check that candidate dict has expected keys
+        if "id" not in candidate or "local_coords" not in candidate:
+            raise ValueError("Candidate entry doesn't contain expected keys")
+
+        id = candidate.get("id")
+        coords = candidate.get("local_coords")
+
+        if id in ids:
+            raise ValueError(f"Duplicate {id} found in candidate ids")
+
+        # AI-assisted
+        try:
+            arr = np.array(coords, dtype=float)
+        except (TypeError, ValueError):
+            raise ValueError(f"local_coords for {id} must be a numeric (M, 3) array")
+        if arr.ndim != 2 or arr.shape[1] != 3 or arr.shape[0] == 0:
+            raise ValueError(f"local_coords for {id} must have shape (M, 3) with M >= 1")
+        
+        if not np.all(np.isfinite(arr)):
+            raise ValueError(f"local_coords for {id} contain NaN or infinity")
+
+        ids.append(id)
+        all_coords.append(arr)
+
+    candidate_record["candidate_ids"] = ids
+
+    # only determine if not already set to None, check if missing selected ID
+    if "selected_index" not in candidate_record:
+        try:
+            candidate_record["selected_index"] = candidate_record.get("candidate_ids").index(selected_id)
+        except ValueError:
+            raise ValueError("List of candidate ids is missing selected ID")
+        
+    candidate_record["coordinates"] = [arr.tolist() for arr in all_coords]
+
+    return candidate_record
 
 
 # Task: J5
 # Author: Tiffany
 def retrieve_rotamers(residue_name: str, descriptor: list[int], library: dict, scope: str) -> list:
     """
+    Retrive the list of rotomer candidates for a residue based on bin distances, number of candidates
+    retrived depends on scope
+
     Assumed paramters: 
         - residue_name = residue type (matches 1st index of rot_stat_idx -> error original rot_stat_idx uses ints)
         - descriptor = RBINS (3 floats; from original: bin13_1, bin13_2, bin14; represents 3 C_ALPHA distances)
@@ -218,8 +278,6 @@ def retrieve_rotamers(residue_name: str, descriptor: list[int], library: dict, s
     Lines covered: 2408 - 2438 (from rebuild_sidechains())
     TODO: 
         - finish error checking (descriptor, library, assumed correct fetching)
-        - determine if / understand need to add ['CA'] to atom_names (after writing C5)
-        - understand how local_coords is calculated
     """
     VALID_RES_NAMES = ["ALA", "ARG", "ASN", "ASP", "CYS", "GLU", "GLN", "GLY", "HIS", "ILE", "LEU", 
                        "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL"]
@@ -311,6 +369,8 @@ def retrieve_rotamers(residue_name: str, descriptor: list[int], library: dict, s
 # Author: Tiffany
 def place_candidate(local_coords: list[list[int]], origin: list[int], axes: NDArray[np.float64]) -> NDArray[np.float64]:
     """
+    Converts from local coords to global coords based on given C-alpha origin and axes
+
     Assumed paramters: 
         - local_coords = list of side chain atom coords for a single candidate from J5
         - origin = C_ALPHA 3D position (list length 3)
@@ -384,6 +444,8 @@ def capture_candidate_trace(engine, ca_record, options, scope):
 # Author: Tiffany
 def select_original_candidate(candidates, context, options):
     """
+    Returns PULCHRA selection for candidate from candidate pool based on options
+
     Assumed paramters: 
         - candidates = {
                 id = residue_name + ":" + rot_stat_lib_idx + ":" + config_num
