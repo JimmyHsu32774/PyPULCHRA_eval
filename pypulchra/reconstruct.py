@@ -276,8 +276,6 @@ def retrieve_rotamers(residue_name: str, descriptor: list[int], library: dict, s
                 } (don't need to store original nheavy since heavy_atoms already contains info)
         - scope = 'nearest_bin' or 'retrieved_bins"
     Lines covered: 2408 - 2438 (from rebuild_sidechains())
-    TODO: 
-        - finish error checking (descriptor, library, assumed correct fetching)
     """
     VALID_RES_NAMES = ["ALA", "ARG", "ASN", "ASP", "CYS", "GLU", "GLN", "GLY", "HIS", "ILE", "LEU", 
                        "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL"]
@@ -288,8 +286,13 @@ def retrieve_rotamers(residue_name: str, descriptor: list[int], library: dict, s
         return []
 
     # check that descriptor is correct shape & only contains floats
-    if np.array(descriptor, dtype=float).shape != (3,):
+    try:
+        descriptor_array = np.asarray(descriptor, dtype=float)
+    except (TypeError, ValueError):
         raise ValueError('descriptor must have shape (3,)')
+    if descriptor_array.shape != (3,) or not np.all(np.isfinite(descriptor_array)):
+        raise ValueError('descriptor must have shape (3,)')
+    descriptor = descriptor_array
 
     # check that library contains needed lists, further confirm that lists are in expected format
     expected_keys = ["rot_stat_idx", "rot_stat_coords", "heavy_atoms"]
@@ -342,25 +345,29 @@ def retrieve_rotamers(residue_name: str, descriptor: list[int], library: dict, s
     candidates = []
     # convert list of rotomers to candidates (id, bin_id, matching_score, atom_names, local_coords, library_order)
     # hit_score, rot_stat_idx index, [residue_name, bin1, bin2, bin3, n_configs, pos]
-    for i, hit_score, rot_stat_lib_idx, rot_stat_idx in enumerate(sorted_rotomers):
+    for library_order, (hit_score, rot_stat_lib_idx, rot_stat_idx) in enumerate(sorted_rotomers):
         n_configs, coords_start_idx = rot_stat_idx[4], rot_stat_idx[5]
 
         for config_num in range(n_configs):
-            # added 'CA' to beginning of atom_names by AI suggestion after analyzing original 
-            #       rot_stat_coords, to update after writing C5
-            atom_names = library.get("heavy_atoms").get(residue_name)
+            atom_names = library["heavy_atoms"].get(residue_name)
+            if atom_names is None:
+                raise ValueError(f"library is missing heavy atoms for {residue_name}")
+            atom_names = list(atom_names)
 
-            # AI used to figure out how to calculate local_coords
-            #   local_coords = len(atom_names) x 3 matrix
-            start = int(coords_start_idx) + len(atom_names) * config_num
+            # AI-assisted
+            has_ca_anchor = library.get("includes_ca_anchor", False)
+            conformer_stride = len(atom_names) + (1 if has_ca_anchor else 0)
+            start = int(coords_start_idx) + conformer_stride * config_num
+            if has_ca_anchor:
+                start += 1
             
             candidates.append({
-                'id': residue_name + ":" + rot_stat_lib_idx + ":" + config_num, 
-                'bin_id': list(rot_stat_idx[1], rot_stat_idx[2], rot_stat_idx[3]), 
+                'id': f"{residue_name}:{rot_stat_lib_idx}:{config_num}",
+                'bin_id': [rot_stat_idx[1], rot_stat_idx[2], rot_stat_idx[3]],
                 'matching_score': hit_score, 
                 'atom_names': atom_names, 
-                'local_coords': library.get("rot_stat_coords")[start:start + len(atom_names)].copy(), 
-                'library_order': i
+                'local_coords': np.asarray(library["rot_stat_coords"][start:start + len(atom_names)]).copy(),
+                'library_order': library_order
             })
 
     return candidates
@@ -377,7 +384,6 @@ def place_candidate(local_coords: list[list[int]], origin: list[int], axes: NDAr
         - axes = frame vectors (3x3 matrix, created from lines 2370 - 2404)
     Lines covered (guessed): 2501 - 2525 (from rebuild_sidechains())
     TODO: 
-        - type error checking (checking that elements of lists are floats)
         - consider parallelizing shifting coords (unsure since max atoms placed = 10)
     """
     ACCEPTED_FLOATING_ERROR = 1e-8
