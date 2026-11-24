@@ -3,6 +3,8 @@ import math
 import numpy as np
 from scipy.spatial import KDTree
 
+BACKBONE_NAMES = {'N', 'CA', 'C', 'O'}
+
 # Task: C1
 # Author: Caroline Rhoads
 def find_close_pairs(coords: list[list[float]], cutoff: float, excluded_pairs: set[tuple[int, int]]) -> np.ndarray:
@@ -72,10 +74,22 @@ def build_excluded_pairs(structure: dict) -> set:
     for atom_id, (chain, resseq, icode, name) in enumerate(structure['atom_keys']):
         residue_ind.setdefault((chain, resseq, icode), []).append((atom_id, name))
 
+    resnames = structure['residue_names']
+
     # add combinations of the atom pairs in each residue to the excluded list:
     for atoms in residue_ind.values():
-        atom_ids = [atom_id for atom_id, _ in atoms]
-        excluded_pairs.update(combinations(atom_ids, 2))
+        #checking all pairs of atoms in each residue
+        for (atom_id_1, name_1), (atom_id_2, name_2) in combinations(atoms, 2):
+            pair_names = {name_1, name_2}
+            # add if both are sidechain atoms:
+            if name_1 not in BACKBONE_NAMES and name_2 not in BACKBONE_NAMES:
+                excluded_pairs.add((atom_id_1, atom_id_2))
+            # add the bonded CA-CB pair (first carbon in the sidechain):
+            elif pair_names == {'CA', 'CB'}:
+                excluded_pairs.add((atom_id_1, atom_id_2))
+            # add the bonded backbone N with the CD sidechain for proline residues
+            elif resnames[atom_id_1] == 'PRO' and pair_names == {'N', 'CD'}:
+                excluded_pairs.add((atom_id_1, atom_id_2))        
 
     # add combinations of the backbone atoms in neighboring residues to the excluded list:
     for res1, res2 in zip(list(residue_ind), list(residue_ind)[1:]):
