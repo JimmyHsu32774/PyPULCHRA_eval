@@ -5,7 +5,11 @@ import math
 import numpy as np
 from numpy.typing import NDArray
 
-from .function import fit_rigid_transform
+from PyPULCHRA_eval.pypulchra.clashes import build_excluded_pairs, find_close_pairs
+
+from .function import fit_rigid_transform, make_local_frame
+
+BACKBONE_NAMES = {'N', 'CA', 'C', 'O', 'OXT'}
 
 
 # Author: Yitian
@@ -197,7 +201,7 @@ def rebuild_backbone(ca_record, backbone_library, options):
 
 
 # Task: J4
-# Author: Tiffany
+# Author: Tiffany; tiny edit by Caroline
 def assemble_candidate_record(residue_key, candidates, selected_id, scope):
     """
     Assemble one JSON ready candidate record containing residue key, scope, list of all ids, coords,
@@ -254,6 +258,10 @@ def assemble_candidate_record(residue_key, candidates, selected_id, scope):
             raise ValueError("List of candidate ids is missing selected ID")
         
     candidate_record["coordinates"] = [arr.tolist() for arr in all_coords]
+
+    # Added by Caroline to assist with correct_structure_stage... (atom_names needs to be carried over to match each coordinate row to an atom)
+    if len(candidates) > 0 and "atom_names" in candidates[0]:
+        candidate_record["atom_names"] = list(candidates[0]["atom_names"])
 
     return candidate_record
 
@@ -542,10 +550,219 @@ def select_original_candidate(candidates, context, options):
     return {'selected_id': best_candidate['id'], 'decision_trace': decision_trace}
 
 
+# Task: Helper function for C7:
+# Author: Caroline
+def _find_clashes(coords, atom_keys, excluded_pairs, clash_cutoff) -> list[tuple[int, int]]:
+    """
+    Almost the same as find_close_pairs() (in the file clashes.py) but it filters out backbone-backbone clashes."""
+
+    clashes = find_close_pairs(coords, clash_cutoff, excluded_pairs)
+
+    clashes_filtered = []
+    for atom_1, atom_2 in clashes:
+        # Exclude backbone-backbone clashes
+        if atom_keys[atom_1][3] in BACKBONE_NAMES and atom_keys[atom_2][3] in BACKBONE_NAMES:
+            continue
+        clashes_filtered.append((atom_1, atom_2))
+
+    return clashes_filtered
+
+
+# Task: Helper function for C7:
+# Author: Caroline
+def _count_clashes(residue_key, atom_keys, clash_list) -> int:
+    """
+    Count the number of clashes that involve atoms from a specific residue.
+    """
+    count = 0
+    # if either atom in a clash pair belongs to this residue, += 1
+    for atom_1, atom_2 in clash_list:
+        if tuple(atom_keys[atom_1][:3]) == residue_key:
+            count += 1
+        if tuple(atom_keys[atom_2][:3]) == residue_key:
+            count += 1
+    return count
+
 
 # Task: C7
+# Author: Caroline
 def correct_structure_stage(structure: dict, candidates: list, options: dict[str,bool]) -> dict:
-    pass
+    #def correct_structure_stage({'atom_keys': [('A',1,'','CA')], 'residue_names': ['ALA'], 'coords': np.array([[0.,0.,0.]])}, [], {'correct_sidechains': False})) -> dict:
+
+    """C7: Implement the contract above; no reference solution is supplied.
+    
+    What this does:
+        if options['correct_sidechains'] is True, then for each candidate in candidates, the function will correct the sidechain conformations of the structure based on the candidate's information. The corrected structure will be returned as a new dictionary.
+            else, if options['correct_sidechains'] is False, the function will return the original structure without any modifications.
+        stage_status is a reciept of the action taken, this is set to 'disabled' if the user is skipping this step and a copy of the structure is returned, this is set to 'corrected' if the sidechains were corrected..
+
+    """
+    CLASH_CUTOFF = 2.0  # example cutoff distance for clashes, C code used 1.6
+    MAX_ITERATIONS = 3  # number of iterations for sidechain correction from C code, = 100 is for backbone not sidechain checks
+
+    # Check inputs are good to go:
+    if not isinstance(options, dict):
+        raise ValueError("correct_structure_stage() input 'options' must be a dictionary")
+    if 'correct_sidechains' not in options:
+        raise ValueError("correct_structure_stage() input 'options' must include the key 'correct_sidechains'")
+    if not isinstance(options['correct_sidechains'], bool):
+        raise ValueError("correct_structure_stage() input 'options' must have 'correct_sidechains' set to a boolean value")
+
+    # Create a copy of the structure to avoid modifying the original
+    return_structure = deepcopy(structure)
+    
+    # first branch, do nothing and return a copy of the structure with stage_status set to 'disabled':
+    if options['correct_sidechains'] is False:  
+        return_structure['stage_status'] = 'disabled'
+        return return_structure
+
+    # Implementation:
+    if options['correct_sidechains'] is True:
+
+        atom_keys = return_structure['atom_keys']   # (chain, resseq, icode, atom_name)
+        residue_names = return_structure['residue_names']   # the 3 letter code for each residue
+        coords = np.array(return_structure['coords'], dtype=float)   # copies the coordinates of the whole structure
+
+        # If the structure is empty:
+        if len(atom_keys) == 0:
+            return_structure['stage_status'] = 'corrected'
+            return_structure['diagnostics'] = []
+            return_structure['remaining_clashes'] = 0
+            return return_structure
+
+        # Set up data structures to rotate residues:
+        # Group atoms by residue:
+        residue_atoms = {}  # build a dictionary that lists the atom IDs for each residue
+        ca_id = {}  # build a dictionary that lists the CA atom ID for each residue for easy lookup later
+        chain_ca = {}  # build a dictionary that lists the CA atom IDs for each chain for easy lookup later
+        for atom_id, key in enumerate(atom_keys):
+            residue_key = tuple(key[:3])  # (chain, resseq, icode)
+            residue_atoms.setdefault(residue_key, []).append(atom_id)   # group atom IDs by residue
+            if key[3] == 'CA':
+                ca_id[residue_key] = atom_id    # don't need setdefault, there should only be one CA atom per residue
+                chain_ca.setdefault(key[0], []).append(residue_key)   # group CA atom IDs by chain
+
+        # Build the frame's dictionary (frame is the coordinate system of the ca for each residue's sidechain placement):
+        frames = {}
+        for _, residue_list in chain_ca.items():
+            if len(residue_list) < 5:
+                continue  # skip chains with less than 5 residues, _extend_ca_trace() needs 5 CA atoms
+
+            # Get a list of ca coordinates from ca_id list
+            ca_coords = []
+            for residue_key in residue_list:
+                ca_coords.append(coords[ca_id[residue_key]])
+            ca_coords = np.array(ca_coords)
+
+            # add two extra CA positions at each end of the chain:
+            extended_ca_coords = _extend_ca_trace(ca_coords)
+
+            for i, residue_key in enumerate(residue_list):
+                # extended[i + 3] corresponds to the next CA's residue
+                # extended[i + 2] corresponds to the current CA's residue
+                # extended[i + 1] corresponds to the previous CA's residue
+                origin, axes = make_local_frame(extended_ca_coords[i + 1], extended_ca_coords[i + 3], extended_ca_coords[i + 2]) # call is previous, next, current
+                frames[residue_key] = np.column_stack((axes[:, 0], axes[:, 2], -axes[:, 1]))
+
+
+        # build the candidate pool for each residue:
+        candidate_pools = {}
+        for pool in candidates:
+            candidate_pools[tuple(pool['residue_key'])] = pool
+
+        # Clashes check:
+        excluded_pairs = build_excluded_pairs(return_structure) # build the set of bonded pairs and sidechain pairs to exclude from clashes
+        clashes = _find_clashes(coords, atom_keys, excluded_pairs, CLASH_CUTOFF)    # returns list of tuple clashes excluding backbone-backbone clashes
+
+        # start of log of changed residues:
+        rotated_residues = []
+
+
+        # MAIN LOOP BEGINS TO CHECK SIDE-CHAIN CLASHES AND GREEDILY ROTATES RESIDUES:
+        i = 0
+        while len(clashes) > 0 and i < MAX_ITERATIONS:
+            i += 1
+
+            # Clashing residues are rotated in chain order:
+            for residue_key, atom_list in residue_atoms.items():
+                # glycine has no sidechain, so skip it:
+                if residue_names[atom_list[0]] == 'GLY':
+                    continue
+                # skip if no candidate or no frame:
+                if residue_key not in candidate_pools or residue_key not in frames:
+                    continue
+
+                # NOTE: You have to do this inside the loop not before because the clashes of other residues may change while rotating this residue...
+                count_before_rotation = _count_clashes(residue_key, atom_keys, clashes)
+                if count_before_rotation == 0:
+                    continue
+
+                candidate_pool = candidate_pools[residue_key]
+                # sidechain_atoms = [atom_keys[atom_id][3] for atom_id in atom_list if atom_keys[atom_id][3] not in BACKBONE_NAMES]  
+                sidechain_atoms = {}    # get sidechain atom names
+                for atom_id in atom_list:
+                    name = atom_keys[atom_id][3]
+                    if name not in BACKBONE_NAMES:
+                        sidechain_atoms[name] = atom_id
+
+                # need the atom name for each row of a candidates coords
+                names = candidate_pool.get('atom_names') or list(sidechain_atoms)  # use candidate atom names if available, otherwise use the sidechain atom names from the structure
+                if sorted(names) != sorted(sidechain_atoms):
+                    raise ValueError(f"Candidate atom names {names} do not match sidechain atom names {sidechain_atoms} for residue {residue_key}")
+
+                # NOW WE TRY CANDIDATES, KEEPING THE ONE THAT REDUCES CLASHES THE MOST:
+                best_count = None
+                best_id = None
+                best_coords = None
+
+                for candidate_id, local_coords in zip(candidate_pool['candidate_ids'], candidate_pool['coordinates']):
+                    if len(names) != len(local_coords):
+                        raise ValueError(f"Candidate {candidate_id} has {len(local_coords)} coordinates but expected {len(names)} based on atom names for residue {residue_key}")
+
+                    # get the global coords:
+                    placement = place_candidate(local_coords, coords[ca_id[residue_key]], frames[residue_key])
+
+                    # trial placement:
+                    for name, position in zip(names, placement):
+                        coords[sidechain_atoms[name]] = position  # update the coords for this sidechain atom
+                    trial_clashes = _find_clashes(coords, atom_keys, excluded_pairs, CLASH_CUTOFF)
+                    trial_count = _count_clashes(residue_key, atom_keys, trial_clashes)
+
+                    # place the candidate if its the best so far, strict '<' means first candidate wins ties
+                    if best_count is None or trial_count < best_count:
+                        best_count = trial_count
+                        best_id = candidate_id
+                        best_coords = placement
+
+                    if trial_count == 0:
+                        break  # no need to try more candidates if we found one with no clashes
+
+                # empty candidate pool:
+                if best_count is None:
+                    continue  # no candidates to try, skip to next residue
+
+                # make sure the best candidate is written back into the structure's coords:
+                for name, position in zip(names, best_coords):
+                    coords[sidechain_atoms[name]] = position  # update the coords for this sidechain atom
+
+                # update the log:
+                rotated_residues.append({
+                    'residue_key': residue_key,
+                    'pass': i,
+                    'selected_candidate_id': best_id,
+                    'clash_count_before': count_before_rotation,
+                    'clash_count_after': best_count
+                })
+
+                # update the clash list:
+                clashes = _find_clashes(coords, atom_keys, excluded_pairs, CLASH_CUTOFF)
+
+        # finalize the return structure:
+        return_structure['coords'] = coords
+        return_structure['stage_status'] = 'corrected'
+        return_structure['diagnostics'] = rotated_residues
+        return_structure['remaining_clashes'] = len(clashes)
+        return return_structure
 
 
 # Task: I1

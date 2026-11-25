@@ -3,7 +3,7 @@ import math
 import numpy as np
 from scipy.spatial import KDTree
 
-BACKBONE_NAMES = {'N', 'CA', 'C', 'O'}
+BACKBONE_NAMES = {'N', 'CA', 'C', 'O', 'OXT'}
 
 # Task: C1
 # Author: Caroline Rhoads
@@ -97,8 +97,8 @@ def build_excluded_pairs(structure: dict) -> set:
             continue
         if res2[1] < res1[1]:
             raise ValueError("residues are not in increasing order within a chain")
-        backbone1 = {name: atom_id for atom_id, name in residue_ind[res1] if name in ('N', 'CA', 'C', 'O')}
-        backbone2 = {name: atom_id for atom_id, name in residue_ind[res2] if name in ('N', 'CA', 'C', 'O')}
+        backbone1 = {name: atom_id for atom_id, name in residue_ind[res1] if name in BACKBONE_NAMES}
+        backbone2 = {name: atom_id for atom_id, name in residue_ind[res2] if name in BACKBONE_NAMES}
         if 'C' in backbone1 and 'N' in backbone2:
             excluded_pairs.add((backbone1['C'], backbone2['N']))
         if 'CA' in backbone1 and 'CA' in backbone2:
