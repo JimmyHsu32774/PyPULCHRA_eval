@@ -4,18 +4,83 @@ from pathlib import Path
 import numpy as np
 
 # Task: Y1
+# Author: Yitian Xiao (Y1)
 def match_atom_keys(reference_keys, predicted_keys):
-    pass
+    """Return the row indices of atoms that appear in both structures."""
+    reference_keys = list(reference_keys)
+    predicted_keys = list(predicted_keys)
+
+    # a repeated atom would make the correspondence ambiguous
+    if len(set(reference_keys)) != len(reference_keys):
+        raise ValueError('duplicate atom key in reference')
+    if len(set(predicted_keys)) != len(predicted_keys):
+        raise ValueError('duplicate atom key in prediction')
+
+    # map each predicted atom to its row so the lookup stays O(1)
+    predicted_rows = {}
+    for row, key in enumerate(predicted_keys):
+        predicted_rows[key] = row
+
+    ref_match, pred_match = [], []
+    for row, key in enumerate(reference_keys):
+        if key in predicted_rows:
+            ref_match.append(row)
+            pred_match.append(predicted_rows[key])
+    return ref_match, pred_match
 
 
 # Task: Y2
+# Author: Yitian Xiao (Y2)
 def coordinate_rmsd(reference, predicted):
-    pass
+    """RMSD over corresponding atoms, without any superposition."""
+    ref = np.asarray(reference, dtype=float)
+    pred = np.asarray(predicted, dtype=float)
+
+    if ref.ndim != 2 or ref.shape[1] != 3 or len(ref) == 0:
+        raise ValueError('reference must be a nonempty (N, 3) array')
+    if pred.shape != ref.shape:
+        raise ValueError('reference and prediction must have the same shape')
+    if not np.isfinite(ref).all() or not np.isfinite(pred).all():
+        raise ValueError('coordinates must be finite')
+
+    diff = pred - ref
+    # squaring 1e200 would overflow, so divide by the largest displacement first
+    scale = float(np.abs(diff).max())
+    if scale == 0.0:
+        return 0.0
+    diff = diff / scale
+    return scale * float(np.sqrt(np.mean(np.sum(diff * diff, axis=1))))
 
 
 # Task: Y3
+# Author: Yitian Xiao (Y3)
 def dihedral_degrees(p0, p1, p2, p3):
-    pass
+    """Signed dihedral angle in degrees, following the b0/b1/b2 convention."""
+    points = np.asarray([p0, p1, p2, p3], dtype=float)
+    if points.shape != (4, 3):
+        raise ValueError('need four 3D points')
+    if not np.isfinite(points).all():
+        raise ValueError('points must be finite')
+
+    b0 = points[0] - points[1]
+    b1 = points[2] - points[1]
+    b2 = points[3] - points[2]
+
+    length = np.linalg.norm(b1)
+    if length < 1e-12:
+        raise ValueError('central bond has zero length')
+    axis = b1 / length
+
+    v = b0 - np.dot(b0, axis) * axis
+    w = b2 - np.dot(b2, axis) * axis
+    if np.linalg.norm(v) < 1e-12 or np.linalg.norm(w) < 1e-12:
+        raise ValueError('a projected vector has zero length')
+
+    angle = np.degrees(np.arctan2(np.dot(np.cross(axis, v), w), np.dot(v, w)))
+    # arctan2 returns (-180, 180]; shift the +180 end so the range is [-180, 180)
+    if angle >= 180.0:
+        return float(angle - 360.0)
+    return float(angle)
 
 
 # Task: Y4

@@ -5,7 +5,7 @@ import math
 import numpy as np
 from numpy.typing import NDArray
 
-from PyPULCHRA_eval.pypulchra.clashes import build_excluded_pairs, find_close_pairs
+from .clashes import build_excluded_pairs, find_close_pairs
 
 from .function import fit_rigid_transform, make_local_frame
 

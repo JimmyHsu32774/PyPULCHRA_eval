@@ -86,12 +86,15 @@ def test_retrieve_two_conformers_and_place_in_a_rotated_frame():
         'rot_stat_idx': [['ALA', 0, 2, 55, 2, 0]],
         'rot_stat_coords': [[0, 0, 0], [1, 0, 0], [0, 0, 0], [0, 1, 0]],
         'heavy_atoms': {'ALA': ['CB']},
+        'includes_ca_anchor': True,
     }
     candidates = retrieve_rotamers('ALA', [0, 2, 55], library, 'nearest_bin')
-    assert [row[0] for row in candidates] == ['ALA:0:0', 'ALA:0:1']
-    assert candidates[1][1:4] == [[0, 2, 55], 0.0, ['CA', 'CB']]
-    local = candidates[1][4]
-    assert local == [[0, 0, 0], [0, 1, 0]]
+    assert [row['id'] for row in candidates] == ['ALA:0:0', 'ALA:0:1']
+    assert candidates[1]['bin_id'] == [0, 2, 55]
+    assert candidates[1]['matching_score'] == 0.0
+    assert candidates[1]['atom_names'] == ['CB']
+    local = candidates[1]['local_coords']
+    np.testing.assert_array_equal(local, [[0, 1, 0]])
     origin, axes = make_local_frame([1, 2, 3], [3, 4, 5], [2, 2, 1])
     np.testing.assert_allclose(place_candidate(local, origin, axes), np.array(local) @ axes.T + origin)
 
@@ -101,6 +104,7 @@ def test_clash_helpers():
     from pypulchra.clashes import build_excluded_pairs, find_close_pairs
 
     structure = {'atom_keys': [('A', 1, '', 'C'), ('A', 2, '', 'N'), ('B', 1, '', 'CA')],
+                 'residue_names': ['ALA', 'ALA', 'ALA'],
                  'coords': [[0, 0, 0], [1, 0, 0], [-1, 0, 0]]}
     excluded = build_excluded_pairs(structure)
     assert excluded == {(0, 1)}

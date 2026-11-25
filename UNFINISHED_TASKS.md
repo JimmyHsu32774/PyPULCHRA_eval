@@ -1,25 +1,27 @@
 # Unfinished tasks and the 1UBQ demo
 
-The Python command rebuilds the backbone. The 76 residues in the 1UBQ demo yield 305 backbone atoms. The following 16 functions contain only `pass` and have no assigned author.
+The Python command rebuilds the backbone. The 76 residues in the 1UBQ demo yield 305 backbone atoms. The following 8 functions contain only `pass` and have no assigned author.
 
 | Task | Function | File |
 |---|---|---|
-| Y1 | `match_atom_keys(reference_keys, predicted_keys)` | [function.py](pypulchra/function.py) |
-| Y2 | `coordinate_rmsd(reference, predicted)` | [function.py](pypulchra/function.py) |
-| Y3 | `dihedral_degrees(p0, p1, p2, p3)` | [function.py](pypulchra/function.py) |
 | J1 | `angular_error_deg(a, b, period=360.0)` | [function.py](pypulchra/function.py) |
-| J2 | `choose_oracle(candidate_ids, errors)` | [evaluate.py](pypulchra/evaluate.py) |
-| J3 | `classify_selection(selected_error, candidate_errors, threshold)` | [evaluate.py](pypulchra/evaluate.py) |
 | J7 | `capture_candidate_trace(engine, ca_record, options, scope)` | [reconstruct.py](pypulchra/reconstruct.py) |
 | C2 | `pair_overlap_energy(coords_a, coords_b, cutoff)` | [clashes.py](pypulchra/clashes.py) |
 | C3 | `icm_sweep(states, unary_costs, pairwise_costs)` | [clashes.py](pypulchra/clashes.py) |
 | C4 | `compare_stage_metrics(before, after, atol=1e-10)` | [evaluate.py](pypulchra/evaluate.py) |
-| C7 | `correct_structure_stage(structure, candidates, options)` | [reconstruct.py](pypulchra/reconstruct.py) |
 | T2 | `summarize_recovery(labels)` | [evaluate.py](pypulchra/evaluate.py) |
 | T3 | `paired_metric_summary(before, after, atol=1e-10)` | [evaluate.py](pypulchra/evaluate.py) |
 | T5 | `evaluate_chi1(reference_atoms, predicted_atoms, definitions, angle_fn, error_fn, tolerance=40.0)` | [evaluate.py](pypulchra/evaluate.py) |
 
 The original task list also includes T1 `perturb_ca`, T4 `build_experiment_plan` and T7 `run_experiment_batch`. These functions and `experiment.py` are absent from this copy.
+
+## Evaluation functions added by Yitian
+
+`function.py` now provides Y1 `match_atom_keys`, Y2 `coordinate_rmsd`, and Y3 `dihedral_degrees`. `evaluate.py` provides J2 `choose_oracle`, J3 `classify_selection`, I2 `evaluate_candidate_pool`, and the two I3 callbacks `evaluate_stages` and `evaluate_pools`.
+
+The implementations retain Yitian Xiao's notebook signatures and author comments. Shared evaluation infrastructure and migrated tests are marked as AI-assisted. The separate I3 `run_one_protein` runner is still an integration task. C7 is implemented in `reconstruct.py`; its availability does not establish parity with C.
+
+Run `python -m pytest -q tests/test_evaluation.py` for the notebook cases and boundary checks. Native accuracy uses one backbone fit shared by backbone and side-chain atoms; Python/C parity uses no fit. Candidate scoring requires placed side-chain coordinates, stable candidate IDs, and an explicit pool scope.
 
 ## Connecting side-chain stages to I1
 
